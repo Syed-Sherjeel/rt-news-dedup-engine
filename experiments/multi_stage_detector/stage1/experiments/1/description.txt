@@ -1,0 +1,39 @@
+We used the bge small model to test the pipeline but results have been modest
+
+
+================================================================================
+SCENARIO 1: PARAPHRASE counts as DUPLICATE (Positive)
+================================================================================
+
+Confusion Matrix (PARAPHRASE = DUPLICATE):
+[[1491  448]
+ [ 100  337]]
+
+Classification Report:
+                 precision    recall  f1-score   support
+
+            NEW       0.94      0.77      0.84      1939
+DUPE/PARAPHRASE       0.43      0.77      0.55       437
+
+       accuracy                           0.77      2376
+      macro avg       0.68      0.77      0.70      2376
+   weighted avg       0.84      0.77      0.79      2376
+
+
+================================================================================
+SCENARIO 2: PARAPHRASE counts as NEW (Negative)
+================================================================================
+
+Confusion Matrix (PARAPHRASE = NEW):
+[[1792  147]
+ [ 243  194]]
+
+Classification Report:
+                precision    recall  f1-score   support
+
+NEW/PARAPHRASE       0.88      0.92      0.90      1939
+          DUPE       0.57      0.44      0.50       437
+
+      accuracy                           0.84      2376
+     macro avg       0.72      0.68      0.70      2376
+  weighted avg       0.82      0.84      0.83      2376

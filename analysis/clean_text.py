@@ -1,5 +1,7 @@
+import argparse
+from pathlib import Path
 import polars as pl
-import regex  # better unicode support than re
+import regex  
 import html
 
 # ── constants ────────────────────────────────────────────────────────────────
@@ -14,12 +16,12 @@ MIN_TOKEN_COUNT   = 4
 def clean_text(text: str) -> str:
     if not text:
         return ""
-    text = html.unescape(text)               # &amp; → &  etc
-    text = URL_PATTERN.sub("", text)         # drop urls / spam domains
-    text = HTML_PATTERN.sub("", text)        # strip html tags
-    text = EMOJI_PATTERN.sub("", text)       # strip emojis
-    text = PUNCTUATION.sub("", text)         # strip punctuation
-    text = WHITESPACE.sub(" ", text).strip() # collapse whitespace
+    text = html.unescape(text)
+    text = URL_PATTERN.sub("", text)
+    text = HTML_PATTERN.sub("", text)
+    text = EMOJI_PATTERN.sub("", text)
+    text = PUNCTUATION.sub("", text)
+    text = WHITESPACE.sub(" ", text).strip()
     return text
 
 
@@ -31,37 +33,33 @@ def token_count(text: str) -> int:
 def run_pipeline(df: pl.DataFrame) -> pl.DataFrame:
     return (
         df
-        # work on the text column — fall back to body if text is null
         .with_columns(
             pl.when(pl.col("text").is_not_null())
               .then(pl.col("text"))
               .otherwise(pl.col("body"))
               .alias("raw_text")
         )
-        # apply cleaning via map_elements (pure python fn per row)
         .with_columns(
             pl.col("raw_text")
               .map_elements(clean_text, return_dtype=pl.String)
               .alias("cleaned_text")
         )
-        # token count on cleaned text
         .with_columns(
             pl.col("cleaned_text")
               .map_elements(token_count, return_dtype=pl.Int32)
               .alias("token_count")
         )
-        # junk verdict
         .with_columns(
             pl.when(pl.col("token_count") < MIN_TOKEN_COUNT)
               .then(pl.lit("JUNK"))
-              .otherwise(pl.lit("REVIEW"))   # goes to stage 2 classifier
+              .otherwise(pl.lit("REVIEW"))
               .alias("verdict")
         )
     )
 
 
 # ── quick inspection helper ───────────────────────────────────────────────── 
-def print_report(df: pl.DataFrame) -> None:
+def print_report(df: pl.DataFrame) -> pl.DataFrame:
     results = run_pipeline(df)
     
     print("=" * 60)
@@ -91,12 +89,47 @@ def print_report(df: pl.DataFrame) -> None:
     return results
 
 
+# ── CLI ───────────────────────────────────────────────────────────────────── 
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="stage1",
+        description="Clean & sort news messages — Stage 1 pipeline",
+    )
+    p.add_argument(
+        "-i", "--input",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="Path to input CSV (e.g. data/messages_clean.csv)",
+    )
+    p.add_argument(
+        "-o", "--output",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="Path for output CSV (e.g. out/stage1_output.csv)",
+    )
+    return p.parse_args()
+
+
 # ── entry point ───────────────────────────────────────────────────────────── 
 if __name__ == "__main__":
-    df = pl.read_csv("messages_clean.csv")
+    args = parse_args()
+
+    if not args.input.exists():
+        raise FileNotFoundError(f"Input file not found: {args.input}")
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"input  → {args.input}")
+    print(f"output → {args.output}")
+
+    df = pl.read_csv(args.input, try_parse_dates=True)
     results = print_report(df)
-    
-    # save cleaned output for stage 2
+
     results.filter(pl.col("verdict") == "REVIEW") \
            .select(["id", "message_type", "title", "cleaned_text", "received_at"]) \
-           .write_csv("stage1_output.csv")
+           .sort("received_at", descending=False) \
+           .write_csv(args.output)
+
+    print(f"\n✓ saved {len(results.filter(pl.col('verdict') == 'REVIEW'))} rows → {args.output}")
